@@ -246,7 +246,7 @@ void Graph<V,E>::ReadEdgelist(GraphMat::edgelist_t<E> A_edges) {
 template<class V, class E>
 void Graph<V,E>::ReadMTX(const char* filename) {
   GraphMat::edgelist_t<E> A_edges;
-  GraphMat::load_edgelist(filename, &A_edges, true, true, true);// binary format with header and edge weights
+  GraphMat::load_edgelist(filename, &A_edges, true, false, true, true);// binary format with header and edge weights
 
   if (A_edges.m != A_edges.n) {
     auto maxn = std::max(A_edges.m, A_edges.n);

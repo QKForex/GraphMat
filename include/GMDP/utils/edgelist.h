@@ -133,7 +133,7 @@ bool readLine (FILE * ifile, int * src, int * dst, T * val, bool binaryformat=tr
 }
 
 template<typename T>
-void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool binaryformat=true, bool header=true, bool edgeweights=true) {
+void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool* symmetric, bool binaryformat=true, bool header=true, bool edgeweights=true) {
   if (header) {
     int tmp_[3];
     if (binaryformat) {
@@ -143,6 +143,25 @@ void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool bi
       *n = tmp_[1];
       *nnz = tmp_[2];
     } else {
+      unsigned long position;
+      char line[256];
+
+      // read matrixmarket header
+      fflush(fp);
+      position = ftell(fp);
+      fgets(line, 256, fp);
+      *symmetric = strstr(line, "symmetric") != NULL;
+
+      // skip all the comments       
+      line[0] = '%';
+      fseek(fp, position, SEEK_SET);
+      while (line[0] == '%') {
+        fflush(fp);
+        position = ftell(fp);
+        fgets(line, 256, fp);
+      }
+      fseek(fp, position, SEEK_SET);
+
       int ret = fscanf(fp, "%d %d %u", &(tmp_[0]), &(tmp_[1]), &(tmp_[2]));
       assert(ret == 3);
       *m = tmp_[0];
@@ -240,17 +259,19 @@ void write_edgelist(const char* dir, const edgelist_t<T> & edgelist,
 }
 
 template <typename T>
-void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
+void load_edgelist(const char* dir, edgelist_t<T>* edgelist, bool single=true,
                              bool binaryformat=true, bool header=true, bool edgeweights=true) {
   int global_nrank = get_global_nrank();
   int global_myrank = get_global_myrank();
   edgelist->m = 0;
   edgelist->n = 0;
   edgelist->nnz = 0;
+  bool symmetric;
   for(int i = global_myrank ; ; i += global_nrank)
   {
     std::stringstream fname_ss;
-    fname_ss << dir << i;
+    if (single) fname_ss << dir;
+      else fname_ss << dir << i;
     FILE* fp;
     if (binaryformat) {
      fp = fopen(fname_ss.str().c_str(), "rb");
@@ -266,11 +287,13 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
 
     int m_, n_;
     unsigned long nnz_;
-    get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, binaryformat, header, edgeweights);
+    get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, binaryformat, header, edgeweights);
     edgelist->m = std::max(m_, edgelist->m);
     edgelist->n = std::max(n_, edgelist->n);
     edgelist->nnz += nnz_;
+    if (symmetric) edgelist->nnz += nnz_;
     fclose(fp);
+    if (single) break;
   }
   int local_max_m = edgelist->m;
   int max_m = edgelist->m;
@@ -281,6 +304,7 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
   edgelist->m = max_m;
   edgelist->n = max_n;
 
+  std::cout << (symmetric ? "Undirected graph" : "Directed graph") << std::endl;
   std::cout << "Got: " << edgelist->m << " by " << edgelist->n << "  vertices" << std::endl;
   std::cout << "Got: " << edgelist->nnz << " edges" << std::endl;
   
@@ -292,7 +316,8 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
   for(int i = global_myrank ; ; i += global_nrank)
   {
     std::stringstream fname_ss;
-    fname_ss << dir << i;
+    if (single) fname_ss << dir;
+      else fname_ss << dir << i;
     //printf("Opening file: %s\n", fname_ss.str().c_str());
     FILE* fp;
     if (binaryformat) {
@@ -305,7 +330,7 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
     if (header) { //remove header
       int m_, n_;
       unsigned long nnz_;
-      get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, binaryformat, header, edgeweights);
+      get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, binaryformat, header, edgeweights);
     }
     int j = 0;
     while(true) {
@@ -328,8 +353,15 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist,
       j++;
       #endif
       nnzcnt++;
+      if (symmetric) {
+	edgelist->edges[nnzcnt].src = edgelist->edges[nnzcnt-1].dst;
+	edgelist->edges[nnzcnt].dst = edgelist->edges[nnzcnt-1].src;
+	edgelist->edges[nnzcnt].val = edgelist->edges[nnzcnt-1].val;
+        nnzcnt++;
+      }
     }
     fclose(fp);
+    if (single) break;
   }
 }
 
