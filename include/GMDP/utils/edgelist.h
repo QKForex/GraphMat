@@ -133,7 +133,7 @@ bool readLine (FILE * ifile, int * src, int * dst, T * val, bool binaryformat=tr
 }
 
 template<typename T>
-void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool* symmetric, bool binaryformat=true, bool header=true, bool edgeweights=true) {
+void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool* symmetric, bool *pattern, bool binaryformat=true, bool header=true, bool edgeweights=true) {
   if (header) {
     int tmp_[3];
     if (binaryformat) {
@@ -151,6 +151,8 @@ void get_maxid_and_nnz(FILE* fp, int* m, int* n, unsigned long int* nnz, bool* s
       position = ftell(fp);
       fgets(line, 256, fp);
       *symmetric = strstr(line, "symmetric") != NULL;
+      *pattern = strstr(line, "pattern") != NULL;
+      edgeweights = *pattern;
 
       // skip all the comments       
       line[0] = '%';
@@ -266,7 +268,7 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist, bool single=true,
   edgelist->m = 0;
   edgelist->n = 0;
   edgelist->nnz = 0;
-  bool symmetric;
+  bool symmetric, pattern;
   for(int i = global_myrank ; ; i += global_nrank)
   {
     std::stringstream fname_ss;
@@ -287,7 +289,7 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist, bool single=true,
 
     int m_, n_;
     unsigned long nnz_;
-    get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, binaryformat, header, edgeweights);
+    get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, &pattern, binaryformat, header, edgeweights);
     edgelist->m = std::max(m_, edgelist->m);
     edgelist->n = std::max(n_, edgelist->n);
     edgelist->nnz += nnz_;
@@ -304,7 +306,7 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist, bool single=true,
   edgelist->m = max_m;
   edgelist->n = max_n;
 
-  std::cout << (symmetric ? "Undirected graph" : "Directed graph") << std::endl;
+  std::cout << (symmetric ? "Undirected " : "Directed ") << (pattern ? "Unweighted" : "Weighted") << std::endl;
   std::cout << "Got: " << edgelist->m << " by " << edgelist->n << "  vertices" << std::endl;
   std::cout << "Got: " << edgelist->nnz << " edges" << std::endl;
   
@@ -330,14 +332,14 @@ void load_edgelist(const char* dir, edgelist_t<T>* edgelist, bool single=true,
     if (header) { //remove header
       int m_, n_;
       unsigned long nnz_;
-      get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, binaryformat, header, edgeweights);
+      get_maxid_and_nnz<T>(fp, &m_, &n_, &nnz_, &symmetric, &pattern, binaryformat, header, edgeweights);
     }
     int j = 0;
     while(true) {
       if (feof(fp)) {
         break;
       }
-      if (!readLine<T>(fp, &(edgelist->edges[nnzcnt].src), &(edgelist->edges[nnzcnt].dst), &(edgelist->edges[nnzcnt].val), binaryformat, edgeweights)) {
+      if (!readLine<T>(fp, &(edgelist->edges[nnzcnt].src), &(edgelist->edges[nnzcnt].dst), &(edgelist->edges[nnzcnt].val), binaryformat, !pattern && edgeweights)) {
         break;
       }
       #ifdef __DEBUG
